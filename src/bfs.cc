@@ -70,7 +70,7 @@ int64_t TDStep(const Graph &g, pvector<NodeID> &parent,
   #pragma omp parallel
   {
     QueueBuffer<NodeID> lqueue(queue);
-    #pragma omp for reduction(+ : scout_count) nowait
+    #pragma omp for reduction(+ : scout_count) nowait // OMP私有变量？
     for (auto q_iter = queue.begin(); q_iter < queue.end(); q_iter++) {
       NodeID u = *q_iter;
       for (NodeID v : g.out_neigh(u)) {
@@ -83,7 +83,7 @@ int64_t TDStep(const Graph &g, pvector<NodeID> &parent,
         }
       }
     }
-    lqueue.flush();
+    lqueue.flush();// 保持不了原子性质
   }
   return scout_count;
 }
@@ -119,50 +119,50 @@ pvector<NodeID> InitParent(const Graph &g) {
   return parent;
 }
 
-pvector<NodeID> DOBFS(const Graph &g, NodeID source, int alpha = 15,
+pvector<NodeID> DOBFS(const Graph &g, NodeID source, int alpha = 1,//15
                       int beta = 18) {
-  PrintStep("Source", static_cast<int64_t>(source));
-  Timer t;
-  t.Start();
+PrintStep("Source", static_cast<int64_t>(source));
+Timer t;
+t.Start();
   pvector<NodeID> parent = InitParent(g);
-  t.Stop();
-  PrintStep("i", t.Seconds());
+t.Stop();
+PrintStep("i", t.Seconds());
   parent[source] = source;
-  SlidingQueue<NodeID> queue(g.num_nodes());
+  SlidingQueue<NodeID> queue(g.num_nodes()); // 双队列
   queue.push_back(source);
   queue.slide_window();
-  Bitmap curr(g.num_nodes());
+  Bitmap curr(g.num_nodes()); // 存储什么？？
   curr.reset();
   Bitmap front(g.num_nodes());
   front.reset();
   int64_t edges_to_check = g.num_edges_directed();
-  int64_t scout_count = g.out_degree(source);
+  int64_t scout_count = g.out_degree(source); //????
   while (!queue.empty()) {
     if (scout_count > edges_to_check / alpha) {
       int64_t awake_count, old_awake_count;
       TIME_OP(t, QueueToBitmap(queue, front));
-      PrintStep("e", t.Seconds());
+PrintStep("e", t.Seconds());
       awake_count = queue.size();
       queue.slide_window();
       do {
-        t.Start();
+t.Start();
         old_awake_count = awake_count;
         awake_count = BUStep(g, parent, front, curr);
         front.swap(curr);
-        t.Stop();
-        PrintStep("bu", t.Seconds(), awake_count);
+t.Stop();
+PrintStep("bu", t.Seconds(), awake_count);
       } while ((awake_count >= old_awake_count) ||
                (awake_count > g.num_nodes() / beta));
       TIME_OP(t, BitmapToQueue(g, front, queue));
-      PrintStep("c", t.Seconds());
+PrintStep("c", t.Seconds());
       scout_count = 1;
     } else {
-      t.Start();
+t.Start();
       edges_to_check -= scout_count;
       scout_count = TDStep(g, parent, queue);
       queue.slide_window();
-      t.Stop();
-      PrintStep("td", t.Seconds(), queue.size());
+t.Stop();
+PrintStep("td", t.Seconds(), queue.size());
     }
   }
   #pragma omp parallel for
@@ -247,12 +247,16 @@ int main(int argc, char* argv[]) {
     return -1;
   Builder b(cli);
   Graph g = b.MakeGraph();
+  printf("step1\n");
   SourcePicker<Graph> sp(g, cli.start_vertex());
+  printf("step1.5 %d \n", sp.PickNext());
   auto BFSBound = [&sp] (const Graph &g) { return DOBFS(g, sp.PickNext()); };
+  pvector<NodeID> result = DOBFS(g, 1);
   SourcePicker<Graph> vsp(g, cli.start_vertex());
   auto VerifierBound = [&vsp] (const Graph &g, const pvector<NodeID> &parent) {
     return BFSVerifier(g, vsp.PickNext(), parent);
   };
+  printf("step2\n");
   BenchmarkKernel(cli, g, BFSBound, PrintBFSStats, VerifierBound);
   return 0;
 }
