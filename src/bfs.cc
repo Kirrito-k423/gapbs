@@ -137,7 +137,9 @@ PrintStep("i", t.Seconds());
   front.reset();
   int64_t edges_to_check = g.num_edges_directed();
   int64_t scout_count = g.out_degree(source); //????
+  int layer = 0;
   while (!queue.empty()) {
+    printf("layer %d\n",++layer);
     if (scout_count > edges_to_check / alpha) {
       int64_t awake_count, old_awake_count;
       TIME_OP(t, QueueToBitmap(queue, front));
